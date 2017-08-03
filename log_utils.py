@@ -2,10 +2,21 @@ import email_utils
 from my_constants import MY_EMAIL
 import time
 import sys
+import linecache
 
-def log_error(msg, service=None):
+def format_exception():
+    exc_type, exc_obj, tb = sys.exc_info()
+    f = tb.tb_frame
+    lineno = tb.tb_lineno
+    filename = f.f_code.co_filename
+    linecache.checkcache(filename)
+    line = linecache.getline(filename, lineno, f.f_globals)
+    return 'EXCEPTION IN ({}, LINE {} "{}"): {}'.format(filename, lineno, line.strip(), exc_obj)
+
+
+def log_error(e, prefix, service=None):
     time_str = time.strftime('%Y-%m-%d %H:%M')
-    msg = '[Time: %s, MessageID: %s] %s\n' % (time_str, msg)
+    msg = '[%s] %s %s\n' % (time_str, prefix, format_exception())
 
     # print error on stderr
     print(msg, file=sys.stderr)

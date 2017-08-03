@@ -7,6 +7,7 @@ import base64
 from time import sleep
 import subprocess
 import re
+import statistics
 
 from apiclient import discovery
 from oauth2client import client
@@ -83,7 +84,7 @@ def get_binary_files(dirname):
         filename = os.path.join(dirname, filename)
         file,ext = os.path.splitext(filename.lower())
         if ext in binary_exts:
-            is_rover = file_is_rover(service, msg_id, file)
+            is_rover = file_is_rover(file)
             if is_rover:
                 rover_bin = filename
             else:
@@ -101,7 +102,7 @@ def get_text_files(dirname):
         filename = os.path.join(dirname, filename)
         file,ext = os.path.splitext(filename.lower())
         if ext in obs_exts or re.match(obs_re, ext):
-            is_rover = file_is_rover(service, msg_id, file)
+            is_rover = file_is_rover(file)
             if is_rover:
                 rover_obs = filename
             else:
@@ -130,6 +131,19 @@ def get_text_files(dirname):
     
     return (rover_obs, base_obs, nav_files)
 
+
+def third_col_present(file):
+    # determine if third col of obs file has a number
+    with open(file) as obs_file:
+        # skip first 100 lines to avoid header
+        for line in obs_file.readlines()[100:]:
+            if line[0] == '>' or len(line.strip()) < 19:
+                continue
+            if line[18] == ' ':
+                return False
+            else:
+                return True
+
 def parse_line(line):
     pos_eq = line.find('=')
     pos_hash = line.find('#')
@@ -147,18 +161,24 @@ def parse_line(line):
     return (name, value)
 
 def run_convbin(exe_dir, target_dir, binfile):
-    subprocess.call([os.path.join(exe_dir, 'convbin.exe'), '-od', '-os', '-oi', '-ot', '-v', '3.03', '-d', target_dir, binfile])
+    rc = subprocess.call([os.path.join(exe_dir, 'convbin.exe'), '-od', '-os', '-oi', '-ot', '-v', '3.03', '-d', target_dir, binfile])
+    if rc != 0:
+        raise Exception('Non-zero exit code encountered while running convbin.exe.')
 
 def run_rnx2rtkp(exe_dir, config, sln_file, rover_obs, base_obs, nav_files):
-    subprocess.call([os.path.join(exe_dir, 'rnx2rtkp.exe'), '-x', '3', '-y', '3', '-k', config, '-o', 
+    rc = subprocess.call([os.path.join(exe_dir, 'rnx2rtkp.exe'), '-x', '3', '-y', '3', '-k', config, '-o', 
         sln_file, rover_obs, base_obs, ' '.join(nav_files)])
+    if rc != 0:
+        raise Exception('Non-zero exit code encountered while running rnx2rtkp.exe.')
 
 def rtkplot_save_image(sln_file, plot_file):
     # note that the command-line arguments to rtkplot require absolute paths
     exe_file = os.path.join(EXT_BIN_DIR, 'rtkplot.exe')
     sln_file = os.path.abspath(sln_file)
     plot_file = os.path.abspath(plot_file)
-    subprocess.call([exe_file, '-s', plot_file, sln_file])
+    rc = subprocess.call([exe_file, '-s', plot_file, sln_file])
+    if rc != 0:
+        raise Exception('Non-zero exit code encountered while running rtkplot.exe.')
 
 def process_message(service, msg_id, body, sender, thread_id, subject, general_msg_id):
     # create directory in which to work (message id should be unique)
@@ -185,26 +205,62 @@ def process_message(service, msg_id, body, sender, thread_id, subject, general_m
     # convert binary files to text files if necessary
     orig_dir = os.path.join(dirname, 'orig')
     ext_dir = os.path.join(dirname, 'ext')
-    if rover_bin:
+    if rover_bin and base_bin:
         run_convbin(EXT_BIN_DIR, orig_dir, rover_bin)
         run_convbin(EXT_BIN_DIR, ext_dir, rover_bin)
-
-    if base_bin:
         run_convbin(EXT_BIN_DIR, orig_dir, base_bin)
         run_convbin(EXT_BIN_DIR, ext_dir, base_bin)
 
     # next get rover and base text files
-    orig_rover_obs, orig_base_obs, orig_nav_files = get_text_files(orig_dir)
-    ext_rover_obs, ext_base_obs, ext_nav_files = get_text_files(ext_dir)
+    # the directories in which we look for them depend on whether we created them ourselves
+    if rover_bin and base_bin:
+        orig_rover_obs, orig_base_obs, orig_nav_files = get_text_files(orig_dir)
+        ext_rover_obs, ext_base_obs, ext_nav_files = get_text_files(ext_dir)
+    else:
+        orig_rover_obs, orig_base_obs, orig_nav_files = get_text_file('')
+        ext_rover_obs, ext_base_obs, ext_nav_files = orig_rover_obs, orig_base_obs, orig_nav_files
+
+    # parse obs files to modfiy config file
+    overwrites = {}
+    # only do this if we generated them ourselves
+    if rover_bin and base_bin:
+        with open(ext_rover_obs) as obs_file:
+            # first compute median delta to modify aroutcnt and arminfix
+            times = []
+            num_skipped = 0
+            num_to_skip = 50
+            num_read = 0
+            num_to_read = 11
+            for line in obs_file:
+                if line[0] == '>':
+                    if num_skipped < num_to_skip:
+                        num_skipped += 1
+                    else:
+                        # time always starts and ends at same spot
+                        times.append(float(line[19:29]))
+                        num_read += 1
+                        if num_read == num_to_read:
+                            break
+            if len(times):
+                deltas = [times[i] - times[i-1] for i in range(1, len(times))]
+                median_delta = statistics.median(deltas)
+                overwrites['pos2-aroutcnt'] = 20/median_delta
+                overwrites['pos2-arminfix'] = 20/median_delta
+
+        # then use presence or absence of 3rd column to choose cont. or f.-a.-h. AR
+        present_in_rover = third_col_present(ext_rover_obs)
+        present_in_base = third_col_present(ext_base_obs)
+        if present_in_rover and present_in_base:
+            overwrites['pos2-armode'] = 'continuous'
+            overwrites['pos2-gloarmode'] = 'on'
 
     # parse email body to modify config file
-    overwrites = {}
-    print(body)
     for line in body.splitlines():
         nv_tuple = parse_line(line)
         if nv_tuple:
             overwrites[nv_tuple[0]] = nv_tuple[1]
 
+    # perform actual overwrites to obtain modified config file
     config = CONFIG_FILE
     if len(overwrites):
         config = os.path.join(dirname, CONFIG_FILE)
@@ -268,7 +324,7 @@ def process_message(service, msg_id, body, sender, thread_id, subject, general_m
     # because the reply will always be following an original message, "References" and "In-Reply-To" should be the same
     message = email_utils.CreateMessageWithAttachments(MY_EMAIL, sender, subject, html, True,
         attachments, thread_id, general_msg_id, general_msg_id)
-    email_utils.SendMessage(service, msg_id, 'me', message)
+    email_utils.SendMessage(service, 'me', message)
 
 
 def process_messages(service):
@@ -320,7 +376,7 @@ def process_messages(service):
                             raise Exception('Could not determine one of: sender or general message id.')
                         num_processed += 1
                 except Exception as e:
-                    log_error('Eror while processing message %s: %s', (message['id'], str(e)), service)
+                    log_error(e, 'Error while processing message %s:' % (message['id'],), service)
                 finally:
                     # mark message as read
                     if not DEBUGGING:
@@ -338,7 +394,7 @@ def main():
         service = discovery.build('gmail', 'v1', http=http)
         process_messages(service)
     except Exception as e:
-        log_error(str(e))
+        log_error(e, 'Error outside of specific message processing:')
 
 if __name__ == '__main__':
     main()

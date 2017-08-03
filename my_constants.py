@@ -7,8 +7,8 @@ APPLICATION_NAME = 'Read Email Service'
 # application-specific constants
 MY_EMAIL = 'rtklibexplorer@gmail.com'
 PROCESS_SUBJECT = 'rtklib sample'
-ORIG_BIN_DIR = 'rtklib-2.4.3/bin'
-EXT_BIN_DIR = 'demo5_b28'
-CONFIG_FILE = 'demo5.conf'
+ORIG_BIN_DIR = 'orig_bin'
+EXT_BIN_DIR = 'ext_bin'
+CONFIG_FILE = 'template_config.conf'
 
 DEBUGGING = True
