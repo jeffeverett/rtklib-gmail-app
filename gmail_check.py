@@ -206,8 +206,8 @@ def process_message(service, msg_id, body, sender, thread_id, subject, general_m
     orig_dir = os.path.join(dirname, 'orig')
     ext_dir = os.path.join(dirname, 'ext')
     if rover_bin and base_bin:
-        run_convbin(EXT_BIN_DIR, orig_dir, rover_bin)
-        run_convbin(EXT_BIN_DIR, ext_dir, rover_bin)
+        run_convbin(ORIG_BIN_DIR, orig_dir, rover_bin)
+        run_convbin(ORIG_BIN_DIR, ext_dir, rover_bin)
         run_convbin(EXT_BIN_DIR, orig_dir, base_bin)
         run_convbin(EXT_BIN_DIR, ext_dir, base_bin)
 
