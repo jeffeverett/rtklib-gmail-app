@@ -28,6 +28,6 @@ def log_error(e, prefix, service=None):
     # write email to make error more visible
     # but only do this if service is available
     if service:
-        subject = 'Error encountered in GMail App'
+        subject = 'Error encountered in Gmail App'
         message = email_utils.CreateMessage(MY_EMAIL, MY_EMAIL, subject, msg)
-        #email_utils.SendMessage(service, 'me', message)
+        email_utils.SendMessage(service, 'me', message)

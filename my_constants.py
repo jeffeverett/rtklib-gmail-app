@@ -11,4 +11,4 @@ ORIG_BIN_DIR = 'orig_bin'
 EXT_BIN_DIR = 'ext_bin'
 CONFIG_FILE = 'template_config.conf'
 
-DEBUGGING = True
+DEBUGGING = False

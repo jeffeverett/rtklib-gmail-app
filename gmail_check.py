@@ -217,7 +217,7 @@ def process_message(service, msg_id, body, sender, thread_id, subject, general_m
         orig_rover_obs, orig_base_obs, orig_nav_files = get_text_files(orig_dir)
         ext_rover_obs, ext_base_obs, ext_nav_files = get_text_files(ext_dir)
     else:
-        orig_rover_obs, orig_base_obs, orig_nav_files = get_text_file('')
+        orig_rover_obs, orig_base_obs, orig_nav_files = get_text_files(dirname)
         ext_rover_obs, ext_base_obs, ext_nav_files = orig_rover_obs, orig_base_obs, orig_nav_files
 
     # parse obs files to modfiy config file
@@ -340,6 +340,7 @@ def process_messages(service):
         else:
             num_processed = 0
 
+            print('%d unread messages...' % (len(messages['messages'],)))
             for message in messages['messages']:
                 try:
                     contents = service.users().messages().get(userId='me', id=message['id']).execute()
@@ -371,6 +372,7 @@ def process_messages(service):
                             if header['name'] == 'Message-ID':
                                 general_msg_id = header['value']
                         if sender and general_msg_id:
+                            print('Processing message %s...' % (message['id'],))
                             process_message(service, message['id'], body, sender, message['threadId'], subject, general_msg_id)
                         else:
                             raise Exception('Could not determine one of: sender or general message id.')
