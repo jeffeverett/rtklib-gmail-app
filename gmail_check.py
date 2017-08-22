@@ -24,7 +24,7 @@ except ImportError:
     flags = None
 
 from my_constants import (SCOPES, CLIENT_SECRET_FILE, APPLICATION_NAME, MY_EMAIL,
-    PROCESS_SUBJECT, ORIG_BIN_DIR, EXT_BIN_DIR, DEBUGGING, CONFIG_FILE)
+    PROCESS_SUBJECT, ORIG_BIN_DIR, EXT_BIN_DIR, DEBUGGING, ORIG_CONFIG_FILE,EXT_CONFIG_FILE)
 
 def get_credentials():
     """Gets valid user credentials from storage.
@@ -65,7 +65,8 @@ def unzip_all_in_dir(dirname):
 def file_is_rover(file):
     # call the file the rover if it contains 'rover' or the base if it contains 'base'
     # otherwise, look for an 'r' or 'b' in the filename and classify accordingly
-    if file.find('rover') != -1:
+    file,_ = os.path.splitext(os.path.basename(file))
+    if file.find('rov') != -1:
         return True
     elif file.find('base') != -1:
         return False
@@ -74,7 +75,7 @@ def file_is_rover(file):
     elif file.find('b') != -1:
         return False
     else:
-        raise Exception('Cannot determine whether to classify %s as a rover or base.' % (filename,))
+        raise Exception('Cannot determine whether to classify %s as a rover or base.' % (file,))
 
 def get_binary_files(dirname):
     binary_exts = ['.ubx']
@@ -91,31 +92,19 @@ def get_binary_files(dirname):
                 base_bin = filename
     return (rover_bin, base_bin)
 
-def get_text_files(dirname):
+def get_obs_file(dirname, is_rover):
     # first get observation files
     obs_exts = ['.obs']
     obs_re = '^\.\d+o$'
-    rover_obs = None
-    base_obs = None
 
     for filename in os.listdir(dirname):
         filename = os.path.join(dirname, filename)
         file,ext = os.path.splitext(filename.lower())
         if ext in obs_exts or re.match(obs_re, ext):
-            is_rover = file_is_rover(file)
-            if is_rover:
-                rover_obs = filename
-            else:
-                base_obs = filename
+            if file_is_rover(filename) == is_rover:
+                return filename
 
-    if not rover_obs:
-        raise Exception('Could not detect rover observation file in directory %s (even after running convbin if necessary).'
-            % (dirname,))
-    if not base_obs:
-        raise Exception('Could not detect base observation file in directory %s (even after running convbin if necessary).'
-            % (dirname,))
-
-    # next find corresponding navigation files
+def get_nav_files(dirname, rover_obs):
     # take files with the same name as rover obs if they exist,
     # otherwise take whatever nav files can be found
     base_rover_name = os.path.splitext(os.path.basename(os.path.normpath(rover_obs)))[0]
@@ -124,12 +113,10 @@ def get_text_files(dirname):
     nav_files = list(filter(nav_re_strict.match, os.listdir(dirname)))
     if len(nav_files) == 0:
         nav_files = list(filter(nav_re_lenient.match, os.listdir(dirname)))
-        if len(nav_files) == 0:
-            raise Exception('Could not find any navigation files (even after running convbin if necessary).')
     for i in range(len(nav_files)):
         nav_files[i] = os.path.join(dirname, nav_files[i])
     
-    return (rover_obs, base_obs, nav_files)
+    return nav_files
 
 
 def third_col_present(file):
@@ -166,7 +153,7 @@ def run_convbin(exe_dir, target_dir, binfile):
         raise Exception('Non-zero exit code encountered while running convbin.exe.')
 
 def run_rnx2rtkp(exe_dir, config, sln_file, rover_obs, base_obs, nav_files):
-    rc = subprocess.call([os.path.join(exe_dir, 'rnx2rtkp.exe'), '-x', '3', '-y', '3', '-k', config, '-o', 
+    rc = subprocess.call([os.path.join(exe_dir, 'rnx2rtkp.exe'), '-k', config, '-o', 
         sln_file, rover_obs, base_obs, ' '.join(nav_files)])
     if rc != 0:
         raise Exception('Non-zero exit code encountered while running rnx2rtkp.exe.')
@@ -205,20 +192,40 @@ def process_message(service, msg_id, body, sender, thread_id, subject, general_m
     # convert binary files to text files if necessary
     orig_dir = os.path.join(dirname, 'orig')
     ext_dir = os.path.join(dirname, 'ext')
-    if rover_bin and base_bin:
+    if rover_bin:
         run_convbin(ORIG_BIN_DIR, orig_dir, rover_bin)
-        run_convbin(ORIG_BIN_DIR, ext_dir, rover_bin)
-        run_convbin(EXT_BIN_DIR, orig_dir, base_bin)
+        run_convbin(EXT_BIN_DIR, ext_dir, rover_bin)
+    if base_bin:
+        run_convbin(ORIG_BIN_DIR, orig_dir, base_bin)
         run_convbin(EXT_BIN_DIR, ext_dir, base_bin)
 
     # next get rover and base text files
     # the directories in which we look for them depend on whether we created them ourselves
-    if rover_bin and base_bin:
-        orig_rover_obs, orig_base_obs, orig_nav_files = get_text_files(orig_dir)
-        ext_rover_obs, ext_base_obs, ext_nav_files = get_text_files(ext_dir)
+    if rover_bin:
+        orig_rover_obs = get_obs_file(orig_dir, True)
+        ext_rover_obs = get_obs_file(ext_dir, True)
     else:
-        orig_rover_obs, orig_base_obs, orig_nav_files = get_text_files(dirname)
-        ext_rover_obs, ext_base_obs, ext_nav_files = orig_rover_obs, orig_base_obs, orig_nav_files
+        orig_rover_obs = get_obs_file(dirname, True)
+    if not orig_rover_obs or not ext_rover_obs:
+        raise Exception('Could not detect rover observation file (even after running convbin if necessary).')
+        
+    if base_bin:
+        orig_base_obs = get_obs_file(orig_dir, False)
+        ext_base_obs = get_obs_file(ext_dir, False)
+    else:
+        orig_base_obs = ext_base_obs = get_obs_file(dirname, False)
+    if not orig_base_obs or not ext_base_obs:
+        raise Exception('Could not detect base observation file in directory %s (even after running convbin if necessary).')
+    
+    # next find navigation files
+    # again, directories in which to look are dependent on previously run commands
+    if rover_bin:
+        orig_nav_files = get_nav_files(orig_dir, orig_rover_obs)
+        ext_nav_files = get_nav_files(ext_dir, ext_rover_obs)
+    else:
+        orig_nav_files = ext_nav_files = get_nav_files(dirname, orig_rover_obs)
+    if len(orig_nav_files) == 0 or len(ext_nav_files) == 0:
+        raise Exception('Could not find any navigation files (even after running convbin if necessary).')
 
     # parse obs files to modfiy config file
     overwrites = {}
@@ -244,10 +251,9 @@ def process_message(service, msg_id, body, sender, thread_id, subject, general_m
             if len(times):
                 deltas = [times[i] - times[i-1] for i in range(1, len(times))]
                 median_delta = statistics.median(deltas)
-                overwrites['pos2-aroutcnt'] = 20/median_delta
-                overwrites['pos2-arminfix'] = 20/median_delta
-
-        # then use presence or absence of 3rd column to choose cont. or f.-a.-h. AR
+                overwrites['pos2-aroutcnt'] = round(20/median_delta)
+                overwrites['pos2-arminfix'] = round(20/median_delta) 
+        # then use presence or absence of 3rd column (=M8T) to choose cont. or f.-a.-h. AR
         present_in_rover = third_col_present(ext_rover_obs)
         present_in_base = third_col_present(ext_base_obs)
         if present_in_rover and present_in_base:
@@ -260,11 +266,22 @@ def process_message(service, msg_id, body, sender, thread_id, subject, general_m
         if nv_tuple:
             overwrites[nv_tuple[0]] = nv_tuple[1]
 
-    # perform actual overwrites to obtain modified config file
-    config = CONFIG_FILE
+    # perform actual overwrites to obtain modified orig config file
+    orig_config = ORIG_CONFIG_FILE
     if len(overwrites):
-        config = os.path.join(dirname, CONFIG_FILE)
-        with open(CONFIG_FILE, 'r') as config_template, open(config, 'w') as my_config:
+        orig_config = os.path.join(dirname, ORIG_CONFIG_FILE)
+        with open(ORIG_CONFIG_FILE, 'r') as config_template, open(orig_config, 'w') as my_config:
+            for line in config_template:
+                nv_tuple = parse_line(line)
+                if nv_tuple and nv_tuple[0] in overwrites:
+                    line = '%s=%s\n' % (nv_tuple[0], overwrites[nv_tuple[0]])
+                my_config.write(line) 
+                
+    # perform actual overwrites to obtain modified ext config file
+    ext_config = EXT_CONFIG_FILE
+    if len(overwrites):
+        ext_config = os.path.join(dirname, EXT_CONFIG_FILE)
+        with open(EXT_CONFIG_FILE, 'r') as config_template, open(ext_config, 'w') as my_config:
             for line in config_template:
                 nv_tuple = parse_line(line)
                 if nv_tuple and nv_tuple[0] in overwrites:
@@ -275,8 +292,8 @@ def process_message(service, msg_id, body, sender, thread_id, subject, general_m
     # do processing on these files
     orig_sln = os.path.join(orig_dir, 'out_orig.pos')
     ext_sln = os.path.join(ext_dir, 'out_ext.pos')
-    run_rnx2rtkp(ORIG_BIN_DIR, config, orig_sln, orig_rover_obs, orig_base_obs, orig_nav_files)
-    run_rnx2rtkp(EXT_BIN_DIR, config, ext_sln, ext_rover_obs, ext_base_obs, ext_nav_files)
+    run_rnx2rtkp(ORIG_BIN_DIR, orig_config, orig_sln, orig_rover_obs, orig_base_obs, orig_nav_files)
+    run_rnx2rtkp(EXT_BIN_DIR, ext_config, ext_sln, ext_rover_obs, ext_base_obs, ext_nav_files)
 
     # graph these files
     orig_plot = os.path.join(orig_dir, 'plot_orig.jpg')
@@ -386,17 +403,24 @@ def process_messages(service):
                             body={'removeLabelIds': ['UNREAD'], 'addLabelIds': []}).execute()
 
 
-            print('Processed %d messages in this run. Sleeping for 10 seconds' % (num_processed,))
+            print('Processed %d messages in this run. Sleeping for 10 seconds.' % (num_processed,))
             sleep(10)
 
-def main():
+def authorize_and_process():
+    credentials = get_credentials()
+    http = credentials.authorize(httplib2.Http())
+    service = discovery.build('gmail', 'v1', http=http)
+    process_messages(service)
+
+def run_continuously():
     try:
-        credentials = get_credentials()
-        http = credentials.authorize(httplib2.Http())
-        service = discovery.build('gmail', 'v1', http=http)
-        process_messages(service)
+        authorize_and_process()
     except Exception as e:
-        log_error(e, 'Error outside of specific message processing:')
+        log_error(e, 'Error in authorization or message listing:')
+        print('Sleeping for 10 seconds.')
+        sleep(10)
+        run_continuously()
+        
 
 if __name__ == '__main__':
-    main()
+    run_continuously()

@@ -16,7 +16,7 @@ def format_exception():
 
 def log_error(e, prefix, service=None):
     time_str = time.strftime('%Y-%m-%d %H:%M')
-    msg = '[%s] %s %s\n' % (time_str, prefix, format_exception())
+    msg = '[%s] %s %s' % (time_str, prefix, format_exception())
 
     # print error on stderr
     print(msg, file=sys.stderr)

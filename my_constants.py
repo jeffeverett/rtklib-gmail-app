@@ -9,6 +9,7 @@ MY_EMAIL = 'rtklibexplorer@gmail.com'
 PROCESS_SUBJECT = 'rtklib sample'
 ORIG_BIN_DIR = 'orig_bin'
 EXT_BIN_DIR = 'ext_bin'
-CONFIG_FILE = 'template_config.conf'
+ORIG_CONFIG_FILE = 'orig_config.conf'
+EXT_CONFIG_FILE = 'ext_config.conf'
 
 DEBUGGING = False
