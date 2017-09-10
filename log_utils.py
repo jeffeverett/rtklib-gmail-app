@@ -1,8 +1,15 @@
+# Copyright (C) 2017 Jeff Everett - All Rights Reserved
+# You may use, distribute and modify this code under the
+# terms of the BSD-2-Clause license
+
 import email_utils
 from my_constants import MY_EMAIL
 import time
 import sys
 import linecache
+
+class DataException(Exception):
+    pass
 
 def format_exception():
     exc_type, exc_obj, tb = sys.exc_info()

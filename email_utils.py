@@ -1,6 +1,10 @@
 """Send an email message from the user's account.
 """
 
+# Copyright (C) 2017 Jeff Everett - All Rights Reserved
+# You may use, distribute and modify this code under the
+# terms of the BSD-2-Clause license
+
 import base64
 from email.mime.audio import MIMEAudio
 from email.mime.base import MIMEBase
@@ -77,38 +81,39 @@ def CreateMessageWithAttachments(sender, to, subject, message_text, is_html, att
         msg = MIMEText(message_text)
 
     message.attach(msg)
+    
+    if attachments:
+        for attachment in attachments:
+            filename = os.path.basename(attachment['path'])
+            content_type, encoding = mimetypes.guess_type(attachment['path'])
 
-    for attachment in attachments:
-        filename = os.path.basename(attachment['path'])
-        content_type, encoding = mimetypes.guess_type(attachment['path'])
+            if content_type is None or encoding is not None:
+                content_type = 'application/octet-stream'
+            main_type, sub_type = content_type.split('/', 1)
+            if main_type == 'text':
+                fp = open(attachment['path'], 'rb')
+                msg = MIMEText(fp.read(), _subtype=sub_type)
+                fp.close()
+            elif main_type == 'image':
+                fp = open(attachment['path'], 'rb')
+                msg = MIMEImage(fp.read(), _subtype=sub_type)
+                fp.close()
+            elif main_type == 'audio':
+                fp = open(attachment['path'], 'rb')
+                msg = MIMEAudio(fp.read(), _subtype=sub_type)
+                fp.close()
+            else:
+                fp = open(attachment['path'], 'rb')
+                msg = MIMEBase(main_type, sub_type)
+                msg.set_payload(fp.read())
+                fp.close()
 
-        if content_type is None or encoding is not None:
-            content_type = 'application/octet-stream'
-        main_type, sub_type = content_type.split('/', 1)
-        if main_type == 'text':
-            fp = open(attachment['path'], 'rb')
-            msg = MIMEText(fp.read(), _subtype=sub_type)
-            fp.close()
-        elif main_type == 'image':
-            fp = open(attachment['path'], 'rb')
-            msg = MIMEImage(fp.read(), _subtype=sub_type)
-            fp.close()
-        elif main_type == 'audio':
-            fp = open(attachment['path'], 'rb')
-            msg = MIMEAudio(fp.read(), _subtype=sub_type)
-            fp.close()
-        else:
-            fp = open(attachment['path'], 'rb')
-            msg = MIMEBase(main_type, sub_type)
-            msg.set_payload(fp.read())
-            fp.close()
-
-        if attachment['disposition'] == 'inline':
-            msg.add_header('Content-Id', '<%s>' % (filename,))
-            msg.add_header('Content-Disposition', 'inline', filename=filename)
-        else:
-            msg.add_header('Content-Disposition', 'attachment', filename=filename)
-        message.attach(msg)
+            if attachment['disposition'] == 'inline':
+                msg.add_header('Content-Id', '<%s>' % (filename,))
+                msg.add_header('Content-Disposition', 'inline', filename=filename)
+            else:
+                msg.add_header('Content-Disposition', 'attachment', filename=filename)
+            message.attach(msg)
 
     # if thread id is set, message is a reply
     if thread_id:

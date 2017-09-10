@@ -1,0 +1,1 @@
+Place RTKLIB executables in this folder
